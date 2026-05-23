@@ -239,11 +239,12 @@ msg = operation_message()
 msg.operation_code = 0x21
 msg.target = "server"
 msg.sender = "client"
+msg.data = "client_socket"
 ```
 
 #### Usage
 
-To initially connect to the server, the client sends a message with the `0x21` operation code. The `sender` field becomes the name the server stores for this user.
+To initially connect to the server, the client sends a message with the `0x21` operation code. The `sender` field becomes the name the server stores for this user. The clients socket comes in the data.
 
 ---
 
