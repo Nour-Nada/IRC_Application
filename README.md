@@ -102,6 +102,8 @@ class message:
 |---|---|
 | `MSG_IN_PROG` | `0x11` |
 | `FILE_IN_PROG` | `0x12` |
+| `USERS_IN_PROG` | `0x13` |
+| `ROOMS_IN_PROG` | `0x14` |
 
 #### 4.1.4 Restrictions
 

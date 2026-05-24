@@ -20,7 +20,7 @@ class message:
                     'operation_code': self.header.operation_code,
                     'length': 4 * math.ceil(len(self.data) / 3),
                     'target': self.header.target,
-                    'sender': base64.b64encode(self.data).decode("utf-8")
+                    'sender': base64.b64encode(self.data).decode("utf-8") #first coverts to base64 ensureing all the charcters are utf-8 comptaible then it decodes using utf-8
                 },
                 'data': "test"
             }

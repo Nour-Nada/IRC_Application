@@ -110,6 +110,8 @@ def handle_client(client_socket, addr):
                     operation_code = None
                 elif request['operation_message']['sender'].lower() in users:
                     response = handle_errors(0x33, "This name is already taken", request['operation_message']['sender'], SERVER_NAME)
+                elif request['operation_message']['sender'].lower() == "server":
+                    response = handle_errors(0x34, "This name is invalid", request['operation_message']['sender'], SERVER_NAME)
                 elif len(users) >= 100:
                     response = handle_errors(0x3b, "There are too many users", request['operation_message']['sender'], SERVER_NAME)
                 else:
@@ -155,6 +157,7 @@ def handle_client(client_socket, addr):
                     response = handle_operation(0x2e, request['operation_message']['sender'], SERVER_NAME)
             
             elif request['operation_message']['operation_code'] == 0x25: #disconnect
+                send_response = False
                 if operation_code is not None:
                     response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
                     operation_code = None
@@ -166,22 +169,118 @@ def handle_client(client_socket, addr):
                                 with rooms_lock:
                                     rooms[room].remove(request['operation_message']['sender'].lower())
                     response = handle_operation(0x2e, request['operation_message']['sender'], SERVER_NAME)
+                    client_socket.sendall(json.dumps(response).encode('utf-8'))
+                    break
             
             elif request['operation_message']['operation_code'] == 0x26: #list members in a room
                 send_response = False
-                if request['operation_message']['data'].lower() not in rooms:
+                if operation_code is not None:
+                    response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
+                    operation_code = None
+                    send_resposne = True
+                elif request['operation_message']['data'].lower() not in rooms:
                     response = handle_errors(0x38, "The room listed does not exist", request['operation_message']['sender'], SERVER_NAME)
                 else:
                     for user in rooms[request['operation_message']['data'].lower()]:
                         response = message()
+                        response.header.operation_code = 0x13
                         response.header.target = request['operation_message']['sender']
                         response.header.sender = SERVER_NAME
                         response.data = user
-                        json_response = json.dump(response.to_dict()).encode('utf-8')
+                        json_response = json.dumps(response.to_dict()).encode('utf-8')
                         client_socket.sendall(json_response)
-                response = handle_operation(0x27, request['operation_message']['sender'], SERVER_NAME)
-                json_response = json.dump(response.to_dict()).encode('utf-8')
-                client_socket.sendall(json_response)
+                if send_response == False:
+                    response = handle_operation(0x27, request['operation_message']['sender'], SERVER_NAME)
+                    client_socket.sendall(json.dumps(response).encode('utf-8'))
+
+            elif request['operation_message']['operation_code'] == 0x28: #list rooms
+                send_response = False
+                if operation_code is not None:
+                    response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
+                    operation_code = None
+                    send_response = True
+                elif request['operation_message']['data'].lower() not in rooms:
+                    response = handle_errors(0x38, "The room listed does not exist", request['operation_message']['sender'], SERVER_NAME)
+                else:
+                    for room in rooms:
+                        response = message()
+                        response.header.operation_code = 0x14
+                        response.header.target = request['operation_message']['sender']
+                        response.header.sender = SERVER_NAME
+                        response.data = room
+                        json_response = json.dumps(response.to_dict()).encode('utf-8')
+                        client_socket.sendall(json_response)
+                if send_response == False:
+                    response = handle_operation(0x29, request['operation_message']['sender'], SERVER_NAME)
+                    client_socket.sendall(json.dumps(response).encode('utf-8'))
+                
+            elif request['operation_message']['operation_code'] == 0x2a: #send a message to a user or a room
+                send_response = False
+                if request['operation_message']['target'].lower() not in rooms:
+                    response = handle_errors(0x38, "The room listed does not exist", request['operation_message']['sender'], SERVER_NAME)
+                    send_response = True
+                elif operation_code != 0x2a:
+                    response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
+                    operation_code = None
+                elif operation_code == 0x2a:
+                    response = request.encode('utf-8')
+                elif request['operation_message']['operation_code'] == 0x2b:
+                    response = request.encode('utf-8')
+                    operation_code = None
+                else:
+                    response = request.encode('utf-8')
+                if send_response == False:
+                    sent_response = False
+                    if request['operation_message']['target'] in users: #sends to a user
+                        target_socket = users[request['operation_message']['target'].lower()]
+                        target_socket.sendall(json.dumps(response).encode('utf-8'))
+                    elif request['operation_message']['target'] in rooms: #sends to a room
+                        for user in rooms[request['operation_message']['target']]:
+                            target_socket = users[request['operation_message']['target'].lower()]
+                            target_socket.sendall(json.dumps(response).encode('utf-8'))
+                    else:
+                        response = handle_errors(0x39, "The client listed does not exist", request['operation_message']['sender'], SERVER_NAME)
+                        client_socket.sendall(json.dumps(response).encode('utf-8'))
+                        sent_response = True
+                    if sent_response != True: #sends a succses message back to the client if a message was not already sent to them
+                        response = handle_operation(0x2e, request['operation_message']['sender'], SERVER_NAME)
+                        client_socket.sendall(json.dumps(response).encode('utf-8'))
+
+            elif request['operation_message']['operation_code'] == 0x2c: #send a file to a user or a room
+                send_response = False
+                if request['operation_message']['target'].lower() not in rooms:
+                    response = handle_errors(0x38, "The room listed does not exist", request['operation_message']['sender'], SERVER_NAME)
+                    send_response = True
+                elif operation_code != 0x2c:
+                    response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
+                    operation_code = None
+                elif operation_code == 0x2c:
+                    response = request.encode('utf-8')
+                elif request['operation_message']['operation_code'] == 0x2d:
+                    response = request.encode('utf-8')
+                    operation_code = None
+                else:
+                    response = request.encode('utf-8')
+                if send_response == False:
+                    sent_response = False
+                    if request['operation_message']['target'] in users: #sends to a user
+                        target_socket = users[request['operation_message']['target'].lower()]
+                        target_socket.sendall(json.dumps(response).encode('utf-8'))
+                    elif request['operation_message']['target'] in rooms: #sends to a room
+                        for user in rooms[request['operation_message']['target']]:
+                            target_socket = users[request['operation_message']['target'].lower()]
+                            target_socket.sendall(json.dumps(response).encode('utf-8'))
+                    else:
+                        response = handle_errors(0x39, "The client listed does not exist", request['operation_message']['sender'], SERVER_NAME)
+                        client_socket.sendall(json.dumps(response).encode('utf-8'))
+                        sent_response = True
+                    if sent_response != True: #sends a succses message back to the client if a message was not already sent to them
+                        response = handle_operation(0x2e, request['operation_message']['sender'], SERVER_NAME)
+                        client_socket.sendall(json.dumps(response).encode('utf-8'))
+                
+            else:
+                response = handle_errors(0x3d, "An unknown error occured", request['operation_message']['sender'], SERVER_NAME)
+                client_socket.sendall(json.dumps(response).encode('utf-8'))
                 
 
             if send_response == True:
