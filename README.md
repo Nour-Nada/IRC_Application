@@ -191,7 +191,7 @@ class error_message:
 | `NAME_EXISTS` | This name is already taken | `0x33` |
 | `INVALID_NAME` | This name is invalid | `0x34` |
 | `TIMEOUT_ERROR` | Client timed out due to inactivity | `0x35` |
-| `INVALID_OPERATION` | An invalid operation was passed in | `0x36` |
+| `INVALID_OPERATION` | An invalid operation was attempted | `0x36` |
 | `INVALID_PROTOCOL` | An incorrect protocol was used | `0x37` |
 | `INVALID_ROOM` | The room listed does not exist | `0x38` |
 | `INVALID_CLIENT` | The client listed does not exist | `0x39` |

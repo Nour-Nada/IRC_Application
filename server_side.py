@@ -20,11 +20,12 @@ server.listen()
 print("Server is listening on port 8080...")
 
 def handle_client(client_socket, addr):
-    opeartion_code = None #used to determine if the client sent a valid request and did not stop sending the neccessary data
+    operation_code = None #used to determine if the client sent a valid request and did not stop sending the neccessary data
 
     while True:
         try:
             response = None
+            send_response = True #checks if response was already sent
             # varibles for checkindg data validity
             is_valid_data_length = True
             is_valid = True
@@ -100,6 +101,7 @@ def handle_client(client_socket, addr):
                     response.data = "An incorrect protocol was used"
                     response.target = request['operation_message']['sender']
                     response.sender = "server"
+                    operation_code = None
                 elif request['operation_message']['sender'].lower() in users:
                     response = error_message()
                     response.err_code = 0x33
@@ -119,8 +121,6 @@ def handle_client(client_socket, addr):
                     response.operation_code = 0x2e
                     response.target = request['operation_message']['sender']
                     response.sender = "server"
-                
-                operation_code = None
             elif request['operation_message']['operation_code'] == 0x22: #create a room
                 if operation_code is not None:
                     response = error_message()
@@ -128,6 +128,7 @@ def handle_client(client_socket, addr):
                     response.data = "An incorrect protocol was used"
                     response.target = request['operation_message']['sender']
                     response.sender = "server"
+                    operation_code = None
                 elif request['operation_message']['data'].lower() in rooms:
                     response = error_message()
                     response.err_code = 0x34
@@ -154,6 +155,7 @@ def handle_client(client_socket, addr):
                     response.data = "An incorrect protocol was used"
                     response.target = request['operation_message']['sender']
                     response.sender = "server"
+                    operation_code = None
                 elif request['operation_message']['data'].lower() not in rooms:
                     response = error_message()
                     response.err_code = 0x38
@@ -167,6 +169,56 @@ def handle_client(client_socket, addr):
                     response.operation_code = 0x2e
                     response.target = request['operation_message']['sender']
                     response.sender = "server"
+                
+            elif request['operation_message']['operation_code'] == 0x24: #leave a room
+                if operation_code is not None:
+                    response = error_message()
+                    response.err_code = 0x37
+                    response.data = "An incorrect protocol was used"
+                    response.target = request['operation_message']['sender']
+                    response.sender = "server"
+                    operation_code = None
+                elif request['operation_message']['data'].lower() not in rooms:
+                    response = error_message()
+                    response.err_code = 0x38
+                    response.data = "The room listed does not exist"
+                    response.target = request['operation_message']['sender']
+                    response.sender = "server"
+                elif request['operation_message']['sender'].lower() not in rooms[request['operation_message']['data'].lower()]:
+                    response = error_message()
+                    response.err_code = 0x36
+                    response.data = "An invlid operation was attempted"
+                    response.target = request['operation_message']['sender']
+                    response.sender = "server"
+                else:
+                    with rooms_lock:
+                        rooms[request['operation_message']['data'].lower()].remove(request['operation_message']['sender'].lower())
+                    response = operation_message()
+                    response.operation_code = 0x2e
+                    response.target = request['operation_message']['sender']
+                    response.sender = "server"
+            elif request['operation_message']['operation_code'] == 0x25: #disconnect
+                if operation_code is not None:
+                    response = error_message()
+                    response.err_code = 0x37
+                    response.data = "An incorrect protocol was used"
+                    response.target = request['operation_message']['sender']
+                    response.sender = "server"
+                    operation_code = None
+                else:
+                    with users_lock:
+                        del users[request['operation_message']['sender'].lower()]
+                        for room in rooms:
+                            if request['operation_message']['sender'].lower() in rooms[room]:
+                                with rooms_lock:
+                                    rooms[room].remove(request['operation_message']['sender'].lower())
+                    response = operation_message()
+                    response.operation_code = 0x2e
+                    response.target = request['operation_message']['sender']
+                    response.sender = "server"
+            elif request['operation_message']['operation_code'] == 0x26: #list members open
+                send_response = False
+                
 
             client_socket.sendall(json.dumps(response).encode('utf-8'))
         except Exception as e:
