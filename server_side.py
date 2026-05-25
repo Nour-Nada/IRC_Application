@@ -10,12 +10,6 @@ users_lock = threading.Lock()  # lock for synchronizing access to users dict
 rooms = {}  # room name -> users in rooms
 rooms_lock = threading.Lock()  # lock for synchronizing access to rooms dict
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind(('localhost', 8080))
-
-server.listen()
-print("Server is listening on port 8080...")
-
 #Server name
 SERVER_NAME = "server"
 
@@ -34,8 +28,17 @@ def handle_operation(err_code, target, sender):
     response.sender = sender
     return response
 
+def disconnect(user_name):
+    with users_lock:
+        del users[user_name]
+    for room in rooms:
+        if user_name in rooms[room]:
+            with rooms_lock:
+                rooms[room].remove(user_name)
+
 def handle_client(client_socket, addr):
     operation_code = None #used to determine if the client sent a valid request and did not stop sending the neccessary data
+    user_name = None
 
     while True:
         try:
@@ -100,6 +103,9 @@ def handle_client(client_socket, addr):
             #Routing checks that respond back to the client
             if is_valid == False: #if the data is not valid, we send an error message with the incorrect protocol error code
                 response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
+
+            elif is_valid_data_length == False:
+                response = handle_errors(0x3a, "The length of the data is too long", request['operation_message']['sender'], SERVER_NAME)
             
             elif request['operation_message']['sender'].lower() not in users and request['operation_message']['operation_code'] != 0x21: #if the client does not exist we send an invalid client error code
                 response = handle_errors(0x39, "The client listed does not exist", request['operation_message']['sender'], SERVER_NAME)
@@ -117,6 +123,7 @@ def handle_client(client_socket, addr):
                 else:
                     with users_lock:
                         users[request['operation_message']['sender'].lower()] = client_socket
+                    user_name = request['operation_message']['sender'].lower()
                     response = handle_operation(0x2e, request['operation_message']['sender'], SERVER_NAME)
             
             elif request['operation_message']['operation_code'] == 0x22: #create a room
@@ -162,12 +169,7 @@ def handle_client(client_socket, addr):
                     response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
                     operation_code = None
                 else:
-                    with users_lock:
-                        del users[request['operation_message']['sender'].lower()]
-                        for room in rooms:
-                            if request['operation_message']['sender'].lower() in rooms[room]:
-                                with rooms_lock:
-                                    rooms[room].remove(request['operation_message']['sender'].lower())
+                    disconnect(request['operation_message']['sender'].lower())
                     response = handle_operation(0x2e, request['operation_message']['sender'], SERVER_NAME)
                     client_socket.sendall(json.dumps(response).encode('utf-8'))
                     break
@@ -177,7 +179,7 @@ def handle_client(client_socket, addr):
                 if operation_code is not None:
                     response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
                     operation_code = None
-                    send_resposne = True
+                    send_response = True
                 elif request['operation_message']['data'].lower() not in rooms:
                     response = handle_errors(0x38, "The room listed does not exist", request['operation_message']['sender'], SERVER_NAME)
                 else:
@@ -219,10 +221,10 @@ def handle_client(client_socket, addr):
                 if request['operation_message']['target'].lower() not in rooms:
                     response = handle_errors(0x38, "The room listed does not exist", request['operation_message']['sender'], SERVER_NAME)
                     send_response = True
-                elif operation_code != 0x2a:
+                elif request['operation_message']['operation_code'] != 0x2a and request['operation_message']['operation_code'] != 0x2b:
                     response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
                     operation_code = None
-                elif operation_code == 0x2a:
+                elif request['operation_message']['operation_code'] == 0x2a:
                     response = request.encode('utf-8')
                 elif request['operation_message']['operation_code'] == 0x2b:
                     response = request.encode('utf-8')
@@ -232,12 +234,19 @@ def handle_client(client_socket, addr):
                 if send_response == False:
                     sent_response = False
                     if request['operation_message']['target'] in users: #sends to a user
-                        target_socket = users[request['operation_message']['target'].lower()]
-                        target_socket.sendall(json.dumps(response).encode('utf-8'))
-                    elif request['operation_message']['target'] in rooms: #sends to a room
-                        for user in rooms[request['operation_message']['target']]:
+                        try:
                             target_socket = users[request['operation_message']['target'].lower()]
                             target_socket.sendall(json.dumps(response).encode('utf-8'))
+                        except Exception as e:
+                            disconnect(request['operation_message']['target'].lower())
+                    elif request['operation_message']['target'] in rooms: #sends to a room
+                        for user in rooms[request['operation_message']['target']]:
+                            try:
+                                target_socket = users[user]
+                                target_socket.sendall(json.dumps(response).encode('utf-8'))
+                            except Exception as e:
+                                print(f"The client of the name {user} no longer exists")
+                                disconnect(user)
                     else:
                         response = handle_errors(0x39, "The client listed does not exist", request['operation_message']['sender'], SERVER_NAME)
                         client_socket.sendall(json.dumps(response).encode('utf-8'))
@@ -251,10 +260,10 @@ def handle_client(client_socket, addr):
                 if request['operation_message']['target'].lower() not in rooms:
                     response = handle_errors(0x38, "The room listed does not exist", request['operation_message']['sender'], SERVER_NAME)
                     send_response = True
-                elif operation_code != 0x2c:
+                elif request['operation_message']['operation_code'] != 0x2c and request['operation_message']['operation_code'] != 0x2d:
                     response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
                     operation_code = None
-                elif operation_code == 0x2c:
+                elif request['operation_message']['operation_code'] == 0x2c:
                     response = request.encode('utf-8')
                 elif request['operation_message']['operation_code'] == 0x2d:
                     response = request.encode('utf-8')
@@ -264,12 +273,20 @@ def handle_client(client_socket, addr):
                 if send_response == False:
                     sent_response = False
                     if request['operation_message']['target'] in users: #sends to a user
-                        target_socket = users[request['operation_message']['target'].lower()]
-                        target_socket.sendall(json.dumps(response).encode('utf-8'))
-                    elif request['operation_message']['target'] in rooms: #sends to a room
-                        for user in rooms[request['operation_message']['target']]:
+                        try:
                             target_socket = users[request['operation_message']['target'].lower()]
                             target_socket.sendall(json.dumps(response).encode('utf-8'))
+                        except Exception as e:
+                            print(f"The client of the name {request['operation_message']['target'].lower()} no longer exists")
+                            disconnect(request['operation_message']['target'].lower())
+                    elif request['operation_message']['target'] in rooms: #sends to a room
+                        for user in rooms[request['operation_message']['target']]:
+                            try:
+                                target_socket = users[user]
+                                target_socket.sendall(json.dumps(response).encode('utf-8'))
+                            except Exception as e:
+                                print(f"The client of the name {user} no longer exists")
+                                disconnect(user)
                     else:
                         response = handle_errors(0x39, "The client listed does not exist", request['operation_message']['sender'], SERVER_NAME)
                         client_socket.sendall(json.dumps(response).encode('utf-8'))
@@ -285,17 +302,38 @@ def handle_client(client_socket, addr):
 
             if send_response == True:
                 client_socket.sendall(json.dumps(response).encode('utf-8'))
+        except (BrokenPipeError, ConnectionResetError, OSError) as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
+            print(f"The client of the name {user_name} no longer exists")
+            disconnect(user_name)
         except Exception as e:
             print(f"Error handling client {addr}: {e}")
+            print(f"The client of the name {user_name} no longer exists")
+            disconnect(user_name)
             break
     
     client_socket.close()
 
+def main():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(('localhost', 8080))
 
-while True:
-    client_socket, addr = server.accept()
-    print(f"Connection from {addr} has been established.")
-    thread = threading.Thread(target=handle_client, args=(client_socket, addr))
-    thread.start()
+    server.listen()
+    print("Server is listening on port 8080...")
 
-    client_socket.close()
+    server.settimeout(1.0)
+
+    while True:
+        try:
+            client_socket, addr = server.accept()
+            print(f"Connection from {addr} has been established.")
+            thread = threading.Thread(target=handle_client, args=(client_socket, addr))
+            thread.daemon = True
+            thread.start()
+        except socket.timeout:
+            continue
+        except KeyboardInterrupt:
+            print("Shutting down server...")
+            break
+
+if __name__ == "__main__":
+    main()
