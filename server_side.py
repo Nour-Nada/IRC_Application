@@ -10,10 +10,11 @@ users_lock = threading.Lock()  # lock for synchronizing access to users dict
 rooms = {}  # room name -> users in rooms
 rooms_lock = threading.Lock()  # lock for synchronizing access to rooms dict
 
-#Server name
+#Global variables
 SERVER_NAME = "server"
+TIMEOUT_TIME = 30.0
 
-def handle_errors(err_code, data, target, sender):
+def handle_errors(err_code, data, target, sender): #creates an operation_variable object and sends it back
     response = error_message()
     response.err_code = err_code
     response.data = data
@@ -21,14 +22,14 @@ def handle_errors(err_code, data, target, sender):
     response.sender = sender
     return response
 
-def handle_operation(err_code, target, sender):
+def handle_operation(err_code, target, sender): #creates an operation_variable object and sends it back
     response = operation_message()
     response.err_code = err_code
     response.target = target
     response.sender = sender
     return response
 
-def disconnect(user_name):
+def disconnect(user_name): #removes the users from the lists that way when they disconnect they don't persist in the variables
     with users_lock:
         del users[user_name]
     for room in rooms:
@@ -124,6 +125,7 @@ def handle_client(client_socket, addr):
                     with users_lock:
                         users[request['operation_message']['sender'].lower()] = client_socket
                     user_name = request['operation_message']['sender'].lower()
+                    print(f"A new connection with {user_name} was established")
                     response = handle_operation(0x2e, request['operation_message']['sender'], SERVER_NAME)
             
             elif request['operation_message']['operation_code'] == 0x22: #create a room
@@ -216,19 +218,23 @@ def handle_client(client_socket, addr):
                     response = handle_operation(0x29, request['operation_message']['sender'], SERVER_NAME)
                     client_socket.sendall(json.dumps(response).encode('utf-8'))
                 
-            elif request['operation_message']['operation_code'] == 0x2a: #send a message to a user or a room
+            elif request['operation_message']['operation_code'] == 0x2a or operation_code == 0x2a: #send a message to a user or a room
                 send_response = False
+                operation_code = 0x2a
                 if request['operation_message']['target'].lower() not in rooms:
                     response = handle_errors(0x38, "The room listed does not exist", request['operation_message']['sender'], SERVER_NAME)
                     send_response = True
+                    operation_code = None
                 elif request['operation_message']['operation_code'] != 0x2a and request['operation_message']['operation_code'] != 0x2b:
                     response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
                     operation_code = None
                 elif request['operation_message']['operation_code'] == 0x2a:
                     response = request.encode('utf-8')
+                    client_socket.settimeout(TIMEOUT_TIME) #sets a timeout timer for all coming in message pieces until the closing message comes
                 elif request['operation_message']['operation_code'] == 0x2b:
                     response = request.encode('utf-8')
                     operation_code = None
+                    client_socket.settimeout(None)
                 else:
                     response = request.encode('utf-8')
                 if send_response == False:
@@ -255,19 +261,23 @@ def handle_client(client_socket, addr):
                         response = handle_operation(0x2e, request['operation_message']['sender'], SERVER_NAME)
                         client_socket.sendall(json.dumps(response).encode('utf-8'))
 
-            elif request['operation_message']['operation_code'] == 0x2c: #send a file to a user or a room
+            elif request['operation_message']['operation_code'] == 0x2c or operation_code == 0x2c: #send a file to a user or a room
                 send_response = False
+                operation_code = 0x2c
                 if request['operation_message']['target'].lower() not in rooms:
                     response = handle_errors(0x38, "The room listed does not exist", request['operation_message']['sender'], SERVER_NAME)
                     send_response = True
+                    operation_code = None
                 elif request['operation_message']['operation_code'] != 0x2c and request['operation_message']['operation_code'] != 0x2d:
                     response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
                     operation_code = None
                 elif request['operation_message']['operation_code'] == 0x2c:
                     response = request.encode('utf-8')
+                    client_socket.settimeout(TIMEOUT_TIME) #sets a timeout timer for all coming in message pieces until the closing message comes
                 elif request['operation_message']['operation_code'] == 0x2d:
                     response = request.encode('utf-8')
                     operation_code = None
+                    client_socket.settimeout(None)
                 else:
                     response = request.encode('utf-8')
                 if send_response == False:
@@ -294,14 +304,19 @@ def handle_client(client_socket, addr):
                     if sent_response != True: #sends a succses message back to the client if a message was not already sent to them
                         response = handle_operation(0x2e, request['operation_message']['sender'], SERVER_NAME)
                         client_socket.sendall(json.dumps(response).encode('utf-8'))
-                
+
+            elif request['error_message'] or request['message']:
+                response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
             else:
                 response = handle_errors(0x3d, "An unknown error occured", request['operation_message']['sender'], SERVER_NAME)
-                client_socket.sendall(json.dumps(response).encode('utf-8'))
                 
 
             if send_response == True:
                 client_socket.sendall(json.dumps(response).encode('utf-8'))
+        except socket.timeout:
+            print("The opearation was not completed due to a timeout")
+            response = handle_errors(0x35, "Client timed out due to inactivity", request['operation_message']['sender'], SERVER_NAME)
+            client_socket.sendall(json.dumps(response).encode('utf-8'))
         except (BrokenPipeError, ConnectionResetError, OSError) as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
             print(f"The client of the name {user_name} no longer exists")
             disconnect(user_name)
@@ -310,6 +325,8 @@ def handle_client(client_socket, addr):
             print(f"The client of the name {user_name} no longer exists")
             disconnect(user_name)
             break
+        finally:
+            client_socket.settimeout(None)
     
     client_socket.close()
 
