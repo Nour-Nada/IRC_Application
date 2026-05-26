@@ -18,6 +18,10 @@ TIMEOUT_TIME = 30.0
 server_answer = None
 server_answer_lock = threading.Lock()
 
+#signals to the thread and main wheter the connection is lost or not
+connection_lost = False
+connection_lost_lock = threading.Lock()
+
 
 def handle_errors(err_code, data, target, sender): #creates an operation_variable object and sends it back
     response = error_message()
@@ -46,6 +50,9 @@ def response_check(answer): #prevents the need to add this code to every option
         print("And invalid protocol was used by the server")
 
 def timeout_check(): #since I'm using a thread to capture all incoming traffic including that not realted to the current message I sent, I can't use the standard timeout. Thus I have to make my own makeshift one
+    global server_answer
+    global server_answer_lock
+    
     answer = None
     target_time = datetime.datetime.now() + datetime.timedelta(seconds=TIMEOUT_TIME)
     while server_answer == None and datetime.datetime.now() < target_time:
@@ -59,17 +66,41 @@ def timeout_check(): #since I'm using a thread to capture all incoming traffic i
         return answer
 
 def handle_input(server_socket):
-    while True:
-        tmp_answer = server_socket.recv(RECV_SIZE).decode('utf-8')
-        parsed_data = json.loads(tmp_answer)
+    global connection_lost
+    global connection_lost_lock
+    global server_answer
+    global server_answer_lock
 
-        if ('operation_message' in parsed_data and parsed_data['operation_message']['sender'] == SERVER_NAME) or ('error_message' in parsed_data and parsed_data['error_message']['sender'] == SERVER_NAME) or ('message' in parsed_data and parsed_data['message']['sender'] == SERVER_NAME):
-            with server_answer_lock:
-                server_answer = parsed_data
-        else:
-            pass
+    while True:
+        time.sleep(0.1) #to lower the load a bit instead of checking so often
+        while connection_lost == False:
+            try:
+                tmp_answer = server_socket.recv(RECV_SIZE).decode('utf-8')
+                parsed_data = json.loads(tmp_answer)
+
+                if ('operation_message' in parsed_data and parsed_data['operation_message']['sender'] == SERVER_NAME) or ('error_message' in parsed_data and parsed_data['error_message']['sender'] == SERVER_NAME) or ('message' in parsed_data and parsed_data['message']['sender'] == SERVER_NAME):
+                    with server_answer_lock:
+                        server_answer = parsed_data
+                else:
+                    pass
+            except ConnectionResetError as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
+                print(f"\nThe server was forcibly closed.")
+                with connection_lost_lock:
+                        connection_lost = True
+            except (BrokenPipeError, ConnectionResetError, OSError) as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
+                print("\nThe sever seems to be offline. You must reconnect once it comes back online again")
+                with connection_lost_lock:
+                    connection_lost = True
+            except Exception as e:
+                print(f"\nAn unexpected error occured: {e}")
+                with connection_lost_lock:
+                    connection_lost = True
+        
 
 def main():
+    global connection_lost
+    global connection_lost_lock
+
     user_name = None
     option = -1
     response = None
@@ -137,6 +168,10 @@ def main():
                     option = -1
             
             elif option == 1:
+                if connection_lost == True:
+                    server.connect((SERVER_LOCATION, SERVER_PORT))
+                    with connection_lost_lock:
+                        connection_lost = False
                 response = handle_operation(0x21, SERVER_NAME, user_name, "")
                 server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
                 try:
@@ -288,13 +323,18 @@ def main():
             else:
                 print("An unknown error occured. Please enter your option again.")
                 continue
-
+        except ConnectionResetError as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
+            print(f"\nThe server was forcibly closed.")
+            with connection_lost_lock:
+                connection_lost = True
         except (BrokenPipeError, ConnectionResetError, OSError) as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
-            print("The sever seems to be offline. You must reconnect once it comes back online again")
+            print("\nThe sever seems to be offline. You must reconnect once it comes back online again")
+            with connection_lost_lock:
+                connection_lost = True
         except Exception as e:
-            print(f"An unexpected error occured: {e}")
-
-    #disconnect operation message sent
+            print(f"\nAn unexpected error occured: {e}")
+            with connection_lost_lock:
+                connection_lost = True
 
 
     server.close()

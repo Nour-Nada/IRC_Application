@@ -30,14 +30,24 @@ def handle_operation(err_code, target, sender): #creates an operation_variable o
     return response
 
 def disconnect(user_name): #removes the users from the lists that way when they disconnect they don't persist in the variables
-    with users_lock:
-        del users[user_name]
-    for room in rooms:
-        if user_name in rooms[room]:
-            with rooms_lock:
-                rooms[room].remove(user_name)
+    global users
+    global users_lock
+    global rooms
+    global rooms_lock
+    if user_name in users:
+        with users_lock:
+            del users[user_name]
+        for room in rooms:
+            if user_name in rooms[room]:
+                with rooms_lock:
+                    rooms[room].remove(user_name)
 
 def handle_client(client_socket, addr):
+    global users
+    global users_lock
+    global rooms
+    global rooms_lock
+
     operation_code = None #used to determine if the client sent a valid request and did not stop sending the neccessary data
     user_name = None
 
@@ -341,11 +351,16 @@ def handle_client(client_socket, addr):
             response = handle_errors(0x35, "Client timed out due to inactivity", request['operation_message']['sender'], SERVER_NAME)
             client_socket.sendall(json.dumps(response.to_dict()).encode('utf-8'))
         except ConnectionResetError as e: #catches when the client forcibly disconnects
-            print(f"The client of the name {user_name} forcibly disconnected")
+            print(f"The client of the name {user_name} forcibly disconnected (if they did not register a name yet they will by default be called 'None')")
             disconnect(user_name)
-        except (BrokenPipeError, ConnectionResetError, OSError) as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
+            break
+        except (BrokenPipeError, ConnectionResetError, OSError) as e: #attempts to catch specfic errors first to avoid catching general errors before moving to the general error catch
             print(f"The client of the name {user_name} no longer exists")
             disconnect(user_name)
+            break
+        except KeyboardInterrupt:
+            print("Shutting down server...")
+            break
         except Exception as e: #catches all other exceptions
             print(f"Error handling client {addr}: {e}")
             print(f"The client of the name {user_name} no longer exists")
@@ -357,26 +372,31 @@ def handle_client(client_socket, addr):
     client_socket.close()
 
 def main():
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(('localhost', 8080))
+    try:
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.bind(('localhost', 8080))
 
-    server.listen()
-    print("Server is listening on port 8080...")
+        server.listen()
+        print("Server is listening on port 8080...")
 
-    server.settimeout(1.0)
+        server.settimeout(1.0)
 
-    while True:
-        try:
-            client_socket, addr = server.accept()
-            print(f"Connection from {addr} has been established.")
-            thread = threading.Thread(target=handle_client, args=(client_socket, addr))
-            thread.daemon = True
-            thread.start()
-        except socket.timeout:
-            continue
-        except KeyboardInterrupt:
-            print("Shutting down server...")
-            break
+        while True:
+            try:
+                client_socket, addr = server.accept()
+                print(f"Connection from {addr} has been established.")
+                thread = threading.Thread(target=handle_client, args=(client_socket, addr))
+                thread.daemon = True
+                thread.start()
+            except socket.timeout:
+                continue
+            except KeyboardInterrupt:
+                print("Shutting down server...")
+                break
+    except ConnectionResetError:
+        print("A client forcibly disconnected")
+    except KeyboardInterrupt:
+        print("Shutting down server...")
 
 if __name__ == "__main__":
     main()
