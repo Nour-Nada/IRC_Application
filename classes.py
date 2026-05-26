@@ -20,9 +20,9 @@ class message:
                     'operation_code': self.header.operation_code,
                     'length': 4 * math.ceil(len(self.data) / 3),
                     'target': self.header.target,
-                    'sender': base64.b64encode(self.data).decode("utf-8") #first coverts to base64 ensureing all the charcters are utf-8 comptaible then it decodes using utf-8
+                    'sender': "server"
                 },
-                'data': "test"
+                'data': base64.b64encode(self.data).decode("utf-8") #first coverts to base64 ensureing all the charcters are utf-8 comptaible then it decodes using utf-8
             }
         }
         return d
@@ -35,7 +35,7 @@ class operation_message:
         self.sender = ""
             
     def to_dict(self): #turns the operation message into the expected json format
-        return {'operation_message': self.__dict___}
+        return {'operation_message': self.__dict__}
 		
 class error_message:
     def __init__(self):
@@ -45,4 +45,4 @@ class error_message:
         self.sender = ""
 
     def to_dict(self): #turns the error message into the expected json format
-        return {'error_message': self.__dict___}
+        return {'error_message': self.__dict__}

@@ -197,7 +197,7 @@ class error_message:
 | `INVALID_PROTOCOL` | An incorrect protocol was used | `0x37` |
 | `INVALID_ROOM` | The room listed does not exist | `0x38` |
 | `INVALID_CLIENT` | The client listed does not exist | `0x39` |
-| `ILLEGAL_LENGTH` | The length of the data is too long | `0x3a` |
+| `ILLEGAL_LENGTH` | The length of the data is wrong | `0x3a` |
 | `TOO_MANY_USERS` | There are too many users | `0x3b` |
 | `TOO_MANY_ROOMS` | There are too many rooms | `0x3c` |
 | `UNKNOWN_ERR` | An unknown error occurred | `0x3d` |
