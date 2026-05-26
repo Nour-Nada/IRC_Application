@@ -22,9 +22,9 @@ def handle_errors(err_code, data, target, sender): #creates an operation_variabl
     response.sender = sender
     return response
 
-def handle_operation(err_code, target, sender): #creates an operation_variable object and sends it back
+def handle_operation(code, target, sender): #creates an operation_variable object and sends it back
     response = operation_message()
-    response.err_code = err_code
+    response.operation_code = code
     response.target = target
     response.sender = sender
     return response
@@ -50,6 +50,7 @@ def handle_client(client_socket, addr):
 
     operation_code = None #used to determine if the client sent a valid request and did not stop sending the neccessary data
     user_name = None
+    safe_disconnect = False
 
     while True:
         try:
@@ -64,6 +65,7 @@ def handle_client(client_socket, addr):
             if not data:
                 break
             request = json.loads(data.decode())
+            print(f"{request}") #a test print statment
 
             # Handle the request based on the operation code
 
@@ -79,11 +81,9 @@ def handle_client(client_socket, addr):
                     is_valid = False
                 elif len(request['operation_message']['target']) > 20:
                     is_valid = False
-                elif request['error_message']['sender'] == SERVER_NAME:
-                    is_valid = False
                 elif request['operation_message']['sender'] == SERVER_NAME:
                     is_valid = False
-                if len(request['operation_message']['data']) == 0:
+                elif len(request['operation_message']['data']) == 0:
                     no_data = False
             if 'message' in request: #checks the validity of the message data members
                 if request['message']['header']['operation_code'] == 0x00:
@@ -157,8 +157,8 @@ def handle_client(client_socket, addr):
                     operation_code = None
                 elif no_data == False:
                     response = handle_errors(0x3a, "The length of the data is wrong", request['operation_message']['sender'], SERVER_NAME)
-                elif request['operation_message']['data'].lower() in rooms:
-                    response = handle_errors(0x34, "This room already exists", request['operation_message']['sender'], SERVER_NAME)
+                elif request['operation_message']['data'].lower() in rooms or request['operation_message']['data'].lower() in users:
+                    response = handle_errors(0x34, "This name is already taken", request['operation_message']['sender'], SERVER_NAME)
                 elif len(rooms) >= 100:
                     response = handle_errors(0x3c, "There are too many rooms", request['operation_message']['sender'], SERVER_NAME)
                 else:
@@ -200,6 +200,7 @@ def handle_client(client_socket, addr):
                     response = handle_errors(0x37, "An incorrect protocol was used", request['operation_message']['sender'], SERVER_NAME)
                     operation_code = None
                 else:
+                    safe_disconnect = True
                     disconnect(request['operation_message']['sender'].lower())
                     response = handle_operation(0x2e, request['operation_message']['sender'], SERVER_NAME)
                     client_socket.sendall(json.dumps(response.to_dict()).encode('utf-8'))
@@ -216,7 +217,7 @@ def handle_client(client_socket, addr):
                 elif request['operation_message']['data'].lower() not in rooms:
                     response = handle_errors(0x38, "The room listed does not exist", request['operation_message']['sender'], SERVER_NAME)
                 else:
-                    for user in rooms[request['operation_message']['data'].lower()]:
+                    for user in rooms[request['operation_message']['data'].lower()]: #sends the data to every user in the room
                         response = message()
                         response.header.operation_code = 0x13
                         response.header.target = request['operation_message']['sender']
@@ -239,7 +240,7 @@ def handle_client(client_socket, addr):
                 elif request['operation_message']['data'].lower() not in rooms:
                     response = handle_errors(0x38, "The room listed does not exist", request['operation_message']['sender'], SERVER_NAME)
                 else:
-                    for room in rooms:
+                    for room in rooms: #sends the data to every user in the room
                         response = message()
                         response.header.operation_code = 0x14
                         response.header.target = request['operation_message']['sender']
@@ -350,15 +351,18 @@ def handle_client(client_socket, addr):
             print("The opearation was not completed due to a timeout")
             response = handle_errors(0x35, "Client timed out due to inactivity", request['operation_message']['sender'], SERVER_NAME)
             client_socket.sendall(json.dumps(response.to_dict()).encode('utf-8'))
-        except ConnectionResetError as e: #catches when the client forcibly disconnects
-            print(f"The client of the name {user_name} forcibly disconnected (if they did not register a name yet they will by default be called 'None')")
+        except ConnectionResetError as e: #catches when the client disconnects
+            if safe_disconnect == False:
+                print(f"The client of the name {user_name} forcibly disconnected (if they did not register a name yet they will by default be called 'None')")
+            else:
+                print(f"The client of the name {user_name} saftely disconnected (if they did not register a name yet they will by default be called 'None')")
             disconnect(user_name)
             break
         except (BrokenPipeError, ConnectionResetError, OSError) as e: #attempts to catch specfic errors first to avoid catching general errors before moving to the general error catch
             print(f"The client of the name {user_name} no longer exists")
             disconnect(user_name)
             break
-        except KeyboardInterrupt:
+        except KeyboardInterrupt: #makes Ctrl+C operations look nicer
             print("Shutting down server...")
             break
         except Exception as e: #catches all other exceptions
@@ -373,6 +377,7 @@ def handle_client(client_socket, addr):
 
 def main():
     try:
+        #server setup
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.bind(('localhost', 8080))
 
@@ -383,6 +388,7 @@ def main():
 
         while True:
             try:
+                #thread creations
                 client_socket, addr = server.accept()
                 print(f"Connection from {addr} has been established.")
                 thread = threading.Thread(target=handle_client, args=(client_socket, addr))

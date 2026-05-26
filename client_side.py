@@ -3,6 +3,7 @@ import json
 import threading
 import datetime
 import time
+import queue
 
 from classes import *
 
@@ -15,7 +16,7 @@ DATA_SIZE = 768 #even though the max transmit length is 1024 base64 encoding mak
 TIMEOUT_TIME = 30.0
 
 # Shared variable that allows the thread to put in answers from functions that occure
-server_answer = None
+server_answer = queue.Queue(maxsize=10) #makes the receviving structure for messages from the server stack in a queue. The reason the max size is 10 is stop any messages that are not being poped from corrupting the program
 server_answer_lock = threading.Lock()
 
 #signals to the thread and main wheter the connection is lost or not
@@ -31,16 +32,16 @@ def handle_errors(err_code, data, target, sender): #creates an operation_variabl
     response.sender = sender
     return response
 
-def handle_operation(err_code, target, sender, message): #creates an operation_variable object and sends it back
+def handle_operation(code, target, sender, message): #creates an operation_variable object and sends it back
     response = operation_message()
-    response.err_code = err_code
+    response.operation_code = code
     response.target = target
     response.sender = sender
     response.data = message
     return response
 
 def response_check(answer): #prevents the need to add this code to every option
-    if answer['operation_message']['operation_code'] ==  0x2e:
+    if 'operation_message' in answer and answer['operation_message']['operation_code'] ==  0x2e:
         print("This operation was succsefull")
     elif answer['error_message']:
         print(f"An error occured: {answer['error_message']['data']}")
@@ -55,17 +56,16 @@ def timeout_check(): #since I'm using a thread to capture all incoming traffic i
     
     answer = None
     target_time = datetime.datetime.now() + datetime.timedelta(seconds=TIMEOUT_TIME)
-    while server_answer == None and datetime.datetime.now() < target_time:
+    while server_answer.empty() == True and datetime.datetime.now() < target_time:
         time.sleep(0.1)
     if datetime.datetime.now() > target_time:
         raise socket.timeout
     else:
         with server_answer_lock:
-            answer = server_answer
-            server_answer = None
+            answer = server_answer.get()
         return answer
 
-def handle_input(server_socket):
+def handle_input(server_socket): #the thread that process all the messages comng from the server
     global connection_lost
     global connection_lost_lock
     global server_answer
@@ -77,10 +77,11 @@ def handle_input(server_socket):
             try:
                 tmp_answer = server_socket.recv(RECV_SIZE).decode('utf-8')
                 parsed_data = json.loads(tmp_answer)
+                print(f"{parsed_data}") #for testing the responses
 
                 if ('operation_message' in parsed_data and parsed_data['operation_message']['sender'] == SERVER_NAME) or ('error_message' in parsed_data and parsed_data['error_message']['sender'] == SERVER_NAME) or ('message' in parsed_data and parsed_data['message']['sender'] == SERVER_NAME):
                     with server_answer_lock:
-                        server_answer = parsed_data
+                        server_answer.put(parsed_data)
                 else:
                     pass
             except ConnectionResetError as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
@@ -88,7 +89,6 @@ def handle_input(server_socket):
                 with connection_lost_lock:
                         connection_lost = True
             except (BrokenPipeError, ConnectionResetError, OSError) as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
-                print("\nThe sever seems to be offline. You must reconnect once it comes back online again")
                 with connection_lost_lock:
                     connection_lost = True
             except Exception as e:
@@ -121,23 +121,24 @@ def main():
         print("Welcome the the Client Interface for the Internet Relay Chat (IRC) Application!!!")
         user_name = input("Enter the name you want to be idenfited as in the IRC: ")
 
-    while option != 0:
+    while option != 0: #the GUI for completing commands
         print("=====Client IRC Interface Options=====")
         print("0. Exit")
         print("1. Connect to server (MUST be done first)")
         print("2. Create a room")
         print("3. Join a room")
-        print("4. List members")
-        print("5. List rooms")
-        print("6. Send a message")
-        print("7. Send a file")
-        print("8. Disconnect from the server")
-        print("9. View messages in inbox")
+        print("4. Leave a Room")
+        print("5. List members")
+        print("6. List rooms")
+        print("7. Send a message")
+        print("8. Send a file")
+        print("9. Disconnect from the server")
+        print("10. View messages in inbox")
         is_valid_option = False
-        while is_valid_option == False:
+        while is_valid_option == False: #makes sure the option we proceed with is valid
             try:
                 option = int(input("Enter what you would like to do: "))
-                if option < 0 or option > 8:
+                if option < 0 or option > 10:
                     print("Please enter a valid option.")
                     continue
                 else:
@@ -168,11 +169,11 @@ def main():
                     option = -1
             
             elif option == 1:
-                if connection_lost == True:
+                if connection_lost == True: #attempts to restablish the connection although it may not work
                     server.connect((SERVER_LOCATION, SERVER_PORT))
                     with connection_lost_lock:
                         connection_lost = False
-                response = handle_operation(0x21, SERVER_NAME, user_name, "")
+                response = handle_operation(0x21, SERVER_NAME, user_name, user_name)
                 server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
                 try:
                     answer = timeout_check()
@@ -186,7 +187,7 @@ def main():
                     while len(room_name) > 20 or len(room_name) <= 0:
                         print("You entred an invalid length room name")
                         room_name = input("What is the name of the room you would like to create (must be under 20 charcters): ")
-                response = handle_operation(0x21, SERVER_NAME, user_name, room_name)
+                response = handle_operation(0x22, SERVER_NAME, user_name, room_name)
                 server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
                 try:
                     answer = timeout_check()
@@ -200,7 +201,7 @@ def main():
                     while len(room_name) > 20 or len(room_name) < 0:
                         print("You entred an invalid length room name")
                         room_name = input("What is the name of the room you would like to join (must be under 20 charcters): ")
-                response = handle_operation(0x22, SERVER_NAME, user_name, room_name)
+                response = handle_operation(0x23, SERVER_NAME, user_name, room_name)
                 server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
                 try:
                     answer = timeout_check()
@@ -209,6 +210,20 @@ def main():
                     print("The opearation was not completed due to a timeout")
 
             elif option == 4:
+                room_name = input("What is the name of the room you would like to leave (must be under 20 charcters): ")
+                if len(room_name) > 20 or len(room_name) < 0:
+                    while len(room_name) > 20 or len(room_name) < 0:
+                        print("You entred an invalid length room name")
+                        room_name = input("What is the name of the room you would like to leave (must be under 20 charcters): ")
+                response = handle_operation(0x24, SERVER_NAME, user_name, room_name)
+                server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                try:
+                    answer = timeout_check()
+                    response_check(answer)
+                except socket.timeout:
+                    print("The opearation was not completed due to a timeout")
+
+            elif option == 5:
                 room_name = input("What is the name of the room whose users you would like to see (must be under 20 charcters): ")
                 if len(room_name) > 20 or len(room_name) <= 0:
                     while len(room_name) > 20 or len(room_name) <= 0:
@@ -217,11 +232,14 @@ def main():
                 response = handle_operation(0x26, SERVER_NAME, user_name, room_name)
                 server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
                 try:
+                    #catches the succes message first
+                    answer = timeout_check()
+                    response_check(answer)
                     is_close_message = False
                     print(f"The list of users in room {room_name} are listed below:")
                     while is_close_message != True:
                         answer = timeout_check()
-                        if answer['message']['operation_message'] == 0x13:
+                        if 'message' in answer and answer['message']['operation_message'] == 0x13:
                             print(f"\t{answer['message']['data']}")
                         elif answer['operation_message']['operation_message'] == 0x27:
                             is_close_message = True
@@ -231,15 +249,18 @@ def main():
                 except socket.timeout:
                     print("The opearation was not completed due to a timeout")
 
-            elif option == 5:
+            elif option == 6:
                 response = handle_operation(0x28, SERVER_NAME, user_name, "")
                 server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
                 try:
+                    #catches the succes message first
+                    answer = timeout_check()
+                    response_check(answer)
                     is_close_message = False
                     print(f"The list of rooms are listed below:")
                     while is_close_message != True:
                         answer = timeout_check()
-                        if answer['message']['operation_message'] == 0x14:
+                        if 'message' in answer and answer['message']['operation_message'] == 0x14:
                             print(f"\t{answer['message']['data']}")
                         elif answer['operation_message']['operation_message'] == 0x29:
                             is_close_message = True
@@ -249,7 +270,7 @@ def main():
                 except socket.timeout:
                     print("The opearation was not completed due to a timeout")
 
-            elif option == 6:
+            elif option == 7:
                 option_check = 'y'
                 while option_check.lower() == 'y':
                     room_name = input("What is the name of the room or user who you would like to send a message to (must be under 20 charcters): ")
@@ -258,6 +279,7 @@ def main():
                             print("You entred an invalid name length")
                             room_name = input("What is the name of the room or user who you would like to send a message to (must be under 20 charcters): ")
 
+                    #the order for sending this is first sending the opening message, then the contents, then the closing message
                     text_message = input("Enter the message you would like to send below:\n")
                     response = handle_operation(0x2a, SERVER_NAME, user_name, "")
                     server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
@@ -294,10 +316,10 @@ def main():
                             print("You entred an invalid option")
                             option_check = input("Would you like to send to another room or user (Yes = y | No = n)? ")
 
-            elif option == 7:
+            elif option == 8:
                 pass
 
-            elif option == 8:
+            elif option == 9:
                 print("If you disconnect all stored data of you on the server will be lost and you will be disconected. Meaning your name will no longer be stored on the server.")
                 option_check = input("Are you sure you would like to disconnect (Yes = y | No = n)? ")
                 if option_check.lower() != 'y' and option_check.lower() != 'n':
@@ -317,7 +339,7 @@ def main():
                     print("Good choice! The client program will now continue and you are still connected.")
                     option = -1
 
-            elif option == 9:
+            elif option == 10:
                 pass
 
             else:
@@ -327,6 +349,7 @@ def main():
             print(f"\nThe server was forcibly closed.")
             with connection_lost_lock:
                 connection_lost = True
+            break
         except (BrokenPipeError, ConnectionResetError, OSError) as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
             print("\nThe sever seems to be offline. You must reconnect once it comes back online again")
             with connection_lost_lock:
