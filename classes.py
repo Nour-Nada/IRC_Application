@@ -14,6 +14,10 @@ class message:
         self.data = bytearray()
 
     def to_dict(self): #my method for encoding the main message into a json
+        if self.header.operation_code == 0x11 or self.header.operation_code == 0x12:
+            data = base64.b64encode(self.data).decode("utf-8") #first coverts to base64 ensureing all the charcters are utf-8 comptaible then it decodes using utf-8
+        else:
+            data = self.data
         d  = {
             'message': {
                 'header': {
@@ -22,7 +26,7 @@ class message:
                     'target': self.header.target,
                     'sender': "server"
                 },
-                'data': base64.b64encode(self.data).decode("utf-8") #first coverts to base64 ensureing all the charcters are utf-8 comptaible then it decodes using utf-8
+                'data': data
             }
         }
         return d

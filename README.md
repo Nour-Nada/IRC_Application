@@ -148,10 +148,10 @@ class operation_message:
 | `LIST_MEMBERS_CLOSE` | Room name | `0x27` |
 | `LIST_ROOMS_OPEN` | — | `0x28` |
 | `LIST_ROOMS_CLOSE` | — | `0x29` |
-| `SEND_MSG_OPEN` | Room/Receiver name | `0x2a` |
-| `SEND_MSG_CLOSE` | Room/Receiver name | `0x2b` |
-| `SEND_FILE_OPEN` | Room/Receiver name | `0x2c` |
-| `SEND_FILE_CLOSE` | Room/Receiver name | `0x2d` |
+| `SEND_MSG_OPEN` | — | `0x2a` |
+| `SEND_MSG_CLOSE` | — | `0x2b` |
+| `SEND_FILE_OPEN` | File name | `0x2c` |
+| `SEND_FILE_CLOSE` | — | `0x2d` |
 | `SUCCESS` | — | `0x2e` |
 
 #### 4.2.4 Restrictions
@@ -229,6 +229,7 @@ class error_message:
 - The `sender` field in all definitions is replaced with the actual client name.
 - The `data` field is replaced with the actual data being sent.
 - When the server is described as completing functionality in the usage sections, this assumes the absence of errors.
+- When receiving data it will check for “TCP Message Coalescing” by checking for multiple message separated by the `\n` delimiter character between messages
 
 ---
 
@@ -379,6 +380,7 @@ The server echoes the file data chunks to everyone specified in the original ope
 - The `sender` field in all definitions is replaced with the server name.
 - The `data` field is replaced with the actual data being sent.
 - When the server or client is described as completing functionality in the usage sections, this assumes the absence of errors.
+- When sending data the server will prevent “TCP Message Coalescing” by adding a `\n` delimiter character after each message
 
 ---
 
