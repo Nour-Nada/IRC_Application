@@ -2,8 +2,11 @@ import socket
 import json
 import threading
 import datetime
+import timedelta
 import time
 import queue
+import sys
+import Path
 
 from classes import *
 
@@ -25,7 +28,18 @@ connection_lost_lock = threading.Lock()
 
 #user inbox
 inbox = []
+inbox_lock = threading.Lock()
 
+#in progress incoming messages (they are stored like this since techinically many users can send something at the same time)
+in_prog = {} #Format: (sender, target): "data"
+in_prog_lock = threading.Lock()
+
+class recv_message: #class for storing received messages
+    def __init__(self, time, prog_message, is_it_file):
+        self.time_recv = time
+        self.message = prog_message
+        is_file = is_it_file
+        is_valid = True
 
 def handle_errors(err_code, data, target, sender): #creates an operation_variable object and sends it back
     response = error_message()
@@ -73,7 +87,10 @@ def handle_input(server_socket): #the thread that process all the messages comng
     global connection_lost_lock
     global server_answer
     global server_answer_lock
+    global in_prog
+    global in_prog_lock
     global inbox
+    global inbox_lock
 
     while True:
         time.sleep(0.1) #to lower the load a bit instead of checking so often
@@ -91,7 +108,47 @@ def handle_input(server_socket): #the thread that process all the messages comng
                         with server_answer_lock:
                             server_answer.put(parsed_data)
                     else:
-                        pass
+                        if 'message' in parsed_data:
+                            pair_key = (parsed_data['message']['header']['sender'], parsed_data['message']['header']['target'])
+                            if pair_key not in in_prog:
+                                print("The message byte does not belong to any prexisitng message, or a timeout occured", file=sys.stderr)
+                            elif parsed_data['message']['header']['operation_code'] == 0x11:
+                                in_prog[pair_key].message += parsed_data['message']['data']
+                            elif parsed_data['message']['header']['operation_code'] == 0x12:
+                                file_name = in_prog[pair_key].message
+                                data = base64.b64decode(parsed_data['message']['data'])
+                                with open(file_name, "a") as file:
+                                    file.write(data)
+                            else:
+                                print("An incorrect protocol was used", file=sys.stderr)
+                        elif 'operation_message' in parsed_data:
+                            if parsed_data['operation_message']['operation_code'] == 0x2a: #creates the message
+                                with in_prog_lock:
+                                    in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])] = recv_message(datetime.now(), "", False)
+                            elif parsed_data['operation_message']['operation_code'] == 0x2b: #moves the message from the in progress structure to the inbox
+                                new_message
+                                with in_prog_lock:
+                                    new_message = in_prog_lock[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]
+                                    del in_prog_lock[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]
+                                with inbox_lock:
+                                    inbox[in_prog_lock[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]] = new_message
+                            elif parsed_data['operation_message']['operation_code'] == 0x2c:
+                                file_path = Path(parsed_data['operation_message']['data'])
+                                with in_prog_lock:
+                                        in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])] = recv_message(datetime.now(), parsed_data['opeartion_message']['data'], True)
+                                if file_path.is_file():
+                                    in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])].is_valid = False #sets messages with files that already exist as not valid message streams
+                            elif parsed_data['operation_message']['operation_code'] == 0x2d:
+                                new_message
+                                with in_prog_lock:
+                                    new_message = in_prog_lock[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]
+                                    del in_prog_lock[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]
+                                with inbox_lock:
+                                    inbox[in_prog_lock[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]] = new_message
+                            else:
+                                print("An incorrect protocol was used", file=sys.stderr)
+                        else:
+                            print("An incorrect protocol was used", file=sys.stderr)
             except ConnectionResetError as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
                 print(f"\nThe server was forcibly closed.")
                 with connection_lost_lock:
@@ -103,6 +160,21 @@ def handle_input(server_socket): #the thread that process all the messages comng
                 print(f"\nAn unexpected error occured: {e}")
                 with connection_lost_lock:
                     connection_lost = True
+
+def track_time_in_prog(): #this thread removes any message that are being transmitted in progress but passed the 30 second timer limit
+    global in_prog
+    global in_prog_lock
+    while True:
+        time.sleep(1.0)
+        while len(in_prog) != 0:
+            for x in in_prog:
+                if datetime.now() - x.time_recv > timedelta(seconds=TIMEOUT_TIME):
+                    if in_prog[x].is_file == True: #deletes files that were not fully uploaded
+                        Path(in_prog[x].data).unlink(missing_ok=True)
+                    del in_prog[x]
+                else:
+                    continue
+            time.sleep(1.0) #checks every second to prevent unnecsary cycles
         
 
 def main():
@@ -119,7 +191,11 @@ def main():
     try:
         server.connect((SERVER_LOCATION, SERVER_PORT))
         #thread for handling input
-        thread = threading.Thread(target=handle_input, args=(server,))
+        thread = threading.Thread(target=handle_input, args=(server,)) 
+        thread.daemon = True
+        thread.start()
+        #thread for ensuring encoming message don't timeout
+        thread = threading.Thread(target=track_time_in_prog, args=())
         thread.daemon = True
         thread.start()
     except Exception as e:
