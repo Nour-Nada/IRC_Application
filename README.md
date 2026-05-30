@@ -2,6 +2,8 @@
 
 A custom Internet Relay Chat (IRC) application built on a purpose-designed protocol over TCP/IP. Clients can connect to a server, create and join rooms, send messages and files, and list members or rooms — with support for private messaging, secure messaging, and file transfer.
 
+> **Note:** This README was made by giving my IRC specfication doc to Claude and having it generate a README. However the content should be the same as the IRC specficatino document.
+
 ---
 
 ## Table of Contents
