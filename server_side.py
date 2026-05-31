@@ -71,12 +71,12 @@ def handle_client(client_socket, addr):
             target = None
             
             undecrypt_tmp_data = client_socket.recv(4096)
-            tmp_data = cipher_suite.decrypt(undecrypt_tmp_data).decode('utf-8')
-            data_list = tmp_data.split("\n") #splits the messages based on delimters to prevent errors with TCP messages that combine together
+            data_list = undecrypt_tmp_data.split(b"\n") #splits the messages based on delimters to prevent errors with TCP messages that combine together
 
-            for data in data_list:
-                if len(data) == 0:
+            for tmp_data in data_list:
+                if len(tmp_data) == 0:
                     break
+                data = cipher_suite.decrypt(tmp_data).decode('utf-8')
                 request = json.loads(data)
 
                 #for testing purposes
@@ -201,6 +201,8 @@ def handle_client(client_socket, addr):
                     if operation_code is not None:
                         response = handle_errors(0x37, "An incorrect protocol was used", sender, SERVER_NAME)
                         operation_code = None
+                    elif sender in rooms[request['operation_message']['data'].lower()]:
+                        response = handle_errors(0x3d, "An unknown error occurred", sender, SERVER_NAME)
                     elif no_data == False:
                         response = handle_errors(0x3a, "The length of the data is wrong", sender, SERVER_NAME)
                     elif request['operation_message']['data'].lower() not in rooms:
@@ -305,14 +307,14 @@ def handle_client(client_socket, addr):
                         try:
                             if ('operation_message' in request and target in users) or ('message' in request and target in users): #sends to a user
                                 target_socket = users[target]
-                                target_socket.sendall(cipher_suite.encrypt((data + "\n").encode()))
+                                target_socket.sendall(cipher_suite.encrypt((data.encode())) + b"\n")
                             elif ('operation_message' in request and target in rooms) or ('message' in request and target in rooms): #sends to a room
                                 for user in rooms[target]:
                                     target_socket = users[user]
-                                    target_socket.sendall(cipher_suite.encrypt((data + "\n").encode()))
+                                    target_socket.sendall(cipher_suite.encrypt((data.encode())) + b"\n")
                             else:
                                 response = handle_errors(0x39, "The client listed does not exist", sender, SERVER_NAME)
-                                client_socket.sendall((json.dumps(response.to_dict())).encode('utf-8'))
+                                client_socket.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
                                 sent_response = True
                         except ConnectionResetError as e:
                                 print(f"The user or room '{target}' was disconnected due to the error: {e}")
@@ -323,7 +325,7 @@ def handle_client(client_socket, addr):
                             sent_response = True
                     if sent_response != True: #sends a succses message back to the client if a message was not already sent to them
                         response = handle_operation(0x2e, sender, SERVER_NAME)
-                        client_socket.sendall((json.dumps(response.to_dict())).encode('utf-8'))
+                        client_socket.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
 
                 elif ('operation_message' in request and request['operation_message']['operation_code'] == 0x2c) or operation_code == 0x2c: #send a file to a user or a room
                     send_response = False
@@ -351,11 +353,11 @@ def handle_client(client_socket, addr):
                         try:
                             if ('operation_message' in request and target in users) or ('message' in request and target in users): #sends to a user
                                 target_socket = users[target]
-                                target_socket.sendall(cipher_suite.encrypt((data + "\n").encode()))
+                                target_socket.sendall(cipher_suite.encrypt((data.encode())) + b"\n")
                             elif ('operation_message' in request and target in rooms) or ('message' in request and target in rooms): #sends to a room
                                 for user in rooms[target]:
                                     target_socket = users[user]
-                                    target_socket.sendall(cipher_suite.encrypt((data + "\n").encode()))
+                                    target_socket.sendall(cipher_suite.encrypt((data.encode())) + b"\n")
                             else:
                                 response = handle_errors(0x39, "The client listed does not exist", sender, SERVER_NAME)
                                 client_socket.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
@@ -404,7 +406,7 @@ def handle_client(client_socket, addr):
             break
         finally:
             client_socket.settimeout(None)
-    
+    print(f"The user '{user_name}' disconnected")
     client_socket.close()
 
 def main():

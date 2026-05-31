@@ -8,6 +8,7 @@ import sys
 import ssl
 from datetime import timedelta
 from pathlib import Path
+import atexit
 
 from cryptography.fernet import Fernet # MUST DO: "pip install cryptograhy" or "pip install -r requirements.txt"
 
@@ -107,13 +108,14 @@ def handle_input(server_socket): #the thread that process all the messages comng
             try:
                 undecrypt_tmp_answer = server_socket.recv(RECV_SIZE)
                 # print(f"{undecrypt_tmp_answer}") #for testing purposes
-                tmp_answer = cipher_suite.decrypt(undecrypt_tmp_answer).decode('utf-8')
-                tmp_list = tmp_answer.split("\n") #splits the messages based on delimters to prevent errors with TCP messages that combine together
-                # print(f"{tmp_answer}") #for testing purposes
+                tmp_list = undecrypt_tmp_answer.split(b"\n") #splits the messages based on delimters to prevent errors with TCP messages that combine together
+                # print(f"{tmp_list}") #for testing purposes
 
-                for tmp_ret in tmp_list:
-                    if len(tmp_ret) == 0: break
+                for tmp_answer in tmp_list:
+                    if len(tmp_answer) == 0: break
+                    tmp_ret = cipher_suite.decrypt(tmp_answer).decode('utf-8')
                     parsed_data = json.loads(tmp_ret)
+                    # print(f"{tmp_ret}") #for testing purposes
 
                     if ('operation_message' in parsed_data and parsed_data['operation_message']['sender'] == SERVER_NAME) or ('error_message' in parsed_data and parsed_data['error_message']['sender'] == SERVER_NAME) or ('message' in parsed_data and parsed_data['message']['header']['sender'] == SERVER_NAME):
                         server_answer.put(parsed_data)
@@ -135,11 +137,9 @@ def handle_input(server_socket): #the thread that process all the messages comng
                                 print("An incorrect protocol was used", file=sys.stderr)
                         elif 'operation_message' in parsed_data:
                             if parsed_data['operation_message']['operation_code'] == 0x2a: #creates the message
-                                print("was here1")
                                 with in_prog_lock:
                                     in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])] = recv_message(datetime.datetime.now(), "", False)
                             elif parsed_data['operation_message']['operation_code'] == 0x2b: #moves the message from the in progress structure to the inbox
-                                print("was here2")
                                 with in_prog_lock:
                                     new_message = in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]
                                     del in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]
@@ -163,14 +163,13 @@ def handle_input(server_socket): #the thread that process all the messages comng
                                 print("An incorrect protocol was used", file=sys.stderr)
                         else:
                             print("An incorrect protocol was used", file=sys.stderr)
-            except ConnectionResetError as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
+            except ConnectionResetError as e: #attempts to catch specfic errors first to avoid catching general errors before moving to the general error catch
                 print(f"\nThe server was forcibly closed.")
                 print("Exit what you are currently in then choose option 1 to reconnect:")
                 with connection_lost_lock:
                     connection_lost = True
             except (BrokenPipeError, ConnectionResetError, OSError) as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
-                print("A connection error occured")
-                print("Exit what you are currently in then choose option 1 to reconnect:")
+                print("The connection between the server and client has ended")
                 with connection_lost_lock:
                     connection_lost = True
             except Exception as e:
@@ -217,6 +216,9 @@ def main():
         thread2 = threading.Thread(target=track_time_in_prog, args=())
         thread2.daemon = True
         thread2.start()
+
+        atexit.register(thread1.join, 1)
+        atexit.register(thread2.join, 1)
     except Exception as e:
         print("The server could not be connected to. You must do option 1 and attempt to recconect.")
 
@@ -261,7 +263,7 @@ def main():
                 if option_check.lower() == 'y':
                     print("Thank you for using this client program. It will now exit...")
                     response = handle_operation(0x25, SERVER_NAME, user_name, "")
-                    server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                    server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                     try:
                         answer = timeout_check()
                         response_check(answer)
@@ -282,7 +284,7 @@ def main():
                     thread1.daemon = True
                     thread1.start()
                 response = handle_operation(0x21, SERVER_NAME, user_name, user_name)
-                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                 try:
                     answer = timeout_check()
                     response_check(answer)
@@ -296,7 +298,7 @@ def main():
                         print("You entred an invalid length room name")
                         room_name = input("What is the name of the room you would like to create (must be under 20 charcters): ")
                 response = handle_operation(0x22, SERVER_NAME, user_name, room_name)
-                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                 try:
                     answer = timeout_check()
                     response_check(answer)
@@ -310,7 +312,7 @@ def main():
                         print("You entred an invalid length room name")
                         room_name = input("What is the name of the room you would like to join (must be under 20 charcters): ")
                 response = handle_operation(0x23, SERVER_NAME, user_name, room_name)
-                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                 try:
                     answer = timeout_check()
                     response_check(answer)
@@ -324,7 +326,7 @@ def main():
                         print("You entred an invalid length room name")
                         room_name = input("What is the name of the room you would like to leave (must be under 20 charcters): ")
                 response = handle_operation(0x24, SERVER_NAME, user_name, room_name)
-                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                 try:
                     answer = timeout_check()
                     response_check(answer)
@@ -338,7 +340,7 @@ def main():
                         print("You entred an invalid length room name")
                         room_name = input("What is the name of the room whose users you would like to see (must be under 20 charcters): ")
                 response = handle_operation(0x26, SERVER_NAME, user_name, room_name)
-                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                 try:
                     #catches the succes message first
                     response_check(answer)
@@ -358,7 +360,7 @@ def main():
 
             elif option == 6:
                 response = handle_operation(0x28, SERVER_NAME, user_name, "")
-                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                 try:
                     #catches the succes message first
                     response_check(answer)
@@ -394,7 +396,7 @@ def main():
                             print("You entred an invalid message length")
                             text_message = input("Enter the message you would like to send below:\n")
                     response = handle_operation(0x2a, room_name, user_name, "")
-                    server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                    server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                     try:
                         message_not_complete = True
                         answer = timeout_check()
@@ -413,12 +415,12 @@ def main():
                             response.header.target = room_name
                             response.header.sender = user_name
                             response.data = to_send
-                            server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                            server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                             answer = timeout_check()
                             check_result = response_check(answer, True)
                         if check_result:
                             response = handle_operation(0x2b, room_name, user_name, "")
-                            server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                            server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                             answer = timeout_check()
                             response_check(answer)
                     except socket.timeout:
@@ -455,7 +457,7 @@ def main():
                             print("The length of the name is invalid.")
                             final_file_name = input("Enter what name you would like to have the file named as upon arrival (must be under 20 charcters): ")
                     response = handle_operation(0x2c, room_name, user_name, final_file_name)
-                    server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                    server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                     try:
                         message_not_complete = True
                         answer = timeout_check()
@@ -472,12 +474,12 @@ def main():
                                 response.header.target = room_name
                                 response.header.sender = user_name
                                 response.data = to_send
-                                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                                 answer = timeout_check()
-                                check_result = response_check(answer, True)
+                                check_result = response_check(answer, False)
                             if check_result:
                                 response = handle_operation(0x2d, room_name, user_name, "")
-                                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                                server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                                 answer = timeout_check()
                                 response_check(answer)
                     except socket.timeout:
@@ -501,7 +503,7 @@ def main():
                 if option_check.lower() == 'y':
                     print("Thank you for connecting to the server. It will now disconnect...")
                     response = handle_operation(0x25, SERVER_NAME, user_name, "")
-                    server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
+                    server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                     try:
                         answer = timeout_check()
                         response_check(answer)
