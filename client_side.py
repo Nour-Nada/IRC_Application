@@ -5,7 +5,7 @@ import datetime
 import time
 import queue
 import sys
-import math
+import ssl
 from datetime import timedelta
 from pathlib import Path
 
@@ -33,6 +33,7 @@ inbox_counter = 0
 #in progress incoming messages (they are stored like this since techinically many users can send something at the same time)
 in_prog = {} #Format: (sender, target): "data"
 in_prog_lock = threading.Lock()
+
 
 class recv_message: #class for storing received messages
     def __init__(self, time, prog_message, is_it_file):
@@ -252,7 +253,7 @@ def main():
                 if option_check.lower() == 'y':
                     print("Thank you for using this client program. It will now exit...")
                     response = handle_operation(0x25, SERVER_NAME, user_name, "")
-                    server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                    server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                     try:
                         answer = timeout_check()
                         response_check(answer)
@@ -273,7 +274,7 @@ def main():
                     thread1.daemon = True
                     thread1.start()
                 response = handle_operation(0x21, SERVER_NAME, user_name, user_name)
-                server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                 try:
                     answer = timeout_check()
                     response_check(answer)
@@ -287,7 +288,7 @@ def main():
                         print("You entred an invalid length room name")
                         room_name = input("What is the name of the room you would like to create (must be under 20 charcters): ")
                 response = handle_operation(0x22, SERVER_NAME, user_name, room_name)
-                server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                 try:
                     answer = timeout_check()
                     response_check(answer)
@@ -301,7 +302,7 @@ def main():
                         print("You entred an invalid length room name")
                         room_name = input("What is the name of the room you would like to join (must be under 20 charcters): ")
                 response = handle_operation(0x23, SERVER_NAME, user_name, room_name)
-                server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                 try:
                     answer = timeout_check()
                     response_check(answer)
@@ -315,7 +316,7 @@ def main():
                         print("You entred an invalid length room name")
                         room_name = input("What is the name of the room you would like to leave (must be under 20 charcters): ")
                 response = handle_operation(0x24, SERVER_NAME, user_name, room_name)
-                server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                 try:
                     answer = timeout_check()
                     response_check(answer)
@@ -329,7 +330,7 @@ def main():
                         print("You entred an invalid length room name")
                         room_name = input("What is the name of the room whose users you would like to see (must be under 20 charcters): ")
                 response = handle_operation(0x26, SERVER_NAME, user_name, room_name)
-                server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                 try:
                     #catches the succes message first
                     response_check(answer)
@@ -349,7 +350,7 @@ def main():
 
             elif option == 6:
                 response = handle_operation(0x28, SERVER_NAME, user_name, "")
-                server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                 try:
                     #catches the succes message first
                     response_check(answer)
@@ -385,7 +386,7 @@ def main():
                             print("You entred an invalid message length")
                             text_message = input("Enter the message you would like to send below:\n")
                     response = handle_operation(0x2a, room_name, user_name, "")
-                    server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                    server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                     try:
                         message_not_complete = True
                         answer = timeout_check()
@@ -404,12 +405,12 @@ def main():
                             response.header.target = room_name
                             response.header.sender = user_name
                             response.data = to_send
-                            server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                            server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                             answer = timeout_check()
                             check_result = response_check(answer, True)
                         if check_result:
                             response = handle_operation(0x2b, room_name, user_name, "")
-                            server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                            server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                             answer = timeout_check()
                             response_check(answer)
                     except socket.timeout:
@@ -446,7 +447,7 @@ def main():
                             print("The length of the name is invalid.")
                             final_file_name = input("Enter what name you would like to have the file named as upon arrival (must be under 20 charcters): ")
                     response = handle_operation(0x2c, room_name, user_name, final_file_name)
-                    server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                    server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                     try:
                         message_not_complete = True
                         answer = timeout_check()
@@ -463,12 +464,12 @@ def main():
                                 response.header.target = room_name
                                 response.header.sender = user_name
                                 response.data = to_send
-                                server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                                server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                                 answer = timeout_check()
                                 check_result = response_check(answer, True)
                             if check_result:
                                 response = handle_operation(0x2d, room_name, user_name, "")
-                                server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                                server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                                 answer = timeout_check()
                                 response_check(answer)
                     except socket.timeout:
@@ -492,7 +493,7 @@ def main():
                 if option_check.lower() == 'y':
                     print("Thank you for connecting to the server. It will now disconnect...")
                     response = handle_operation(0x25, SERVER_NAME, user_name, "")
-                    server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                    server.sendall((json.dumps(response.to_dict()) + "\n").encode('utf-8'))
                     try:
                         answer = timeout_check()
                         response_check(answer)
