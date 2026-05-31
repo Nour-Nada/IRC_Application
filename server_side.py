@@ -281,6 +281,7 @@ def handle_client(client_socket, addr):
                     
                 elif ('operation_message' in request and request['operation_message']['operation_code'] == 0x2a) or operation_code == 0x2a: #send a message to a user or a room
                     send_response = False
+                    sent_response = False
                     operation_code = 0x2a
                     if target not in rooms and target not in users:
                         response = handle_errors(0x39, "The client listed does not exist", sender, SERVER_NAME)
@@ -304,11 +305,11 @@ def handle_client(client_socket, addr):
                         try:
                             if ('operation_message' in request and target in users) or ('message' in request and target in users): #sends to a user
                                 target_socket = users[target]
-                                target_socket.sendall(cipher_suite.encrypt(data + b"\n"))
+                                target_socket.sendall(cipher_suite.encrypt((data + "\n").encode()))
                             elif ('operation_message' in request and target in rooms) or ('message' in request and target in rooms): #sends to a room
                                 for user in rooms[target]:
                                     target_socket = users[user]
-                                    target_socket.sendall(cipher_suite.encrypt(data + b"\n"))
+                                    target_socket.sendall(cipher_suite.encrypt((data + "\n").encode()))
                             else:
                                 response = handle_errors(0x39, "The client listed does not exist", sender, SERVER_NAME)
                                 client_socket.sendall((json.dumps(response.to_dict())).encode('utf-8'))
@@ -326,6 +327,7 @@ def handle_client(client_socket, addr):
 
                 elif ('operation_message' in request and request['operation_message']['operation_code'] == 0x2c) or operation_code == 0x2c: #send a file to a user or a room
                     send_response = False
+                    sent_response = False
                     operation_code = 0x2c
                     if 'operation_message' in request and target not in rooms and target not in users:
                         response = handle_errors(0x39, "The client listed does not exist", sender, SERVER_NAME)
@@ -349,11 +351,11 @@ def handle_client(client_socket, addr):
                         try:
                             if ('operation_message' in request and target in users) or ('message' in request and target in users): #sends to a user
                                 target_socket = users[target]
-                                target_socket.sendall(cipher_suite.encrypt(data + b"\n"))
+                                target_socket.sendall(cipher_suite.encrypt((data + "\n").encode()))
                             elif ('operation_message' in request and target in rooms) or ('message' in request and target in rooms): #sends to a room
                                 for user in rooms[target]:
                                     target_socket = users[user]
-                                    target_socket.sendall(cipher_suite.encrypt(data + b"\n"))
+                                    target_socket.sendall(cipher_suite.encrypt((data + "\n").encode()))
                             else:
                                 response = handle_errors(0x39, "The client listed does not exist", sender, SERVER_NAME)
                                 client_socket.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) + "\n").encode('utf-8')))
