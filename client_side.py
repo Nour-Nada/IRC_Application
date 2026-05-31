@@ -23,7 +23,7 @@ DATA_SIZE = 768 #even though the max transmit length is 1024 base64 encoding mak
 TIMEOUT_TIME = 30.0
 
 # Shared variable that allows the thread to put in answers from functions that occure
-server_answer = queue.Queue(maxsize=10) #makes the receviving structure for messages from the server stack in a queue. The reason the max size is 10 is stop any messages that are not being poped from corrupting the program
+server_answer = queue.Queue(maxsize=50) #makes the receviving structure for messages from the server stack in a queue. The reason the max size is 10 is stop any messages that are not being poped from corrupting the program
 #signals to the thread and main wheter the connection is lost or not
 connection_lost = False
 connection_lost_lock = threading.Lock()
@@ -85,7 +85,7 @@ def timeout_check(): #since I'm using a thread to capture all incoming traffic i
     answer = None
     target_time = datetime.datetime.now() + datetime.timedelta(seconds=TIMEOUT_TIME)
     while server_answer.empty() == True and datetime.datetime.now() < target_time:
-        time.sleep(0.1)
+        time.sleep(0.01)
     if datetime.datetime.now() > target_time:
         raise socket.timeout
     else:
@@ -103,7 +103,6 @@ def handle_input(server_socket): #the thread that process all the messages comng
     global inbox_counter
 
     while connection_lost == False:
-        time.sleep(0.1) #to lower the load a bit instead of checking so often
         while connection_lost == False:
             try:
                 undecrypt_tmp_answer = server_socket.recv(RECV_SIZE)
@@ -112,7 +111,7 @@ def handle_input(server_socket): #the thread that process all the messages comng
                 # print(f"{tmp_list}") #for testing purposes
 
                 for tmp_answer in tmp_list:
-                    if len(tmp_answer) == 0: break
+                    if len(tmp_answer) == 0: continue
                     tmp_ret = cipher_suite.decrypt(tmp_answer).decode('utf-8')
                     parsed_data = json.loads(tmp_ret)
                     # print(f"{tmp_ret}") #for testing purposes
@@ -127,9 +126,11 @@ def handle_input(server_socket): #the thread that process all the messages comng
                                 print("The message byte does not belong to any prexisitng message, or a timeout occured", file=sys.stderr)
                             elif parsed_data['message']['header']['operation_code'] == 0x11:
                                 in_prog[pair_key].message += parsed_data['message']['data']
+                                in_prog[pair_key].time_recv = datetime.datetime.now()
                             elif parsed_data['message']['header']['operation_code'] == 0x12:
                                 if in_prog[pair_key].is_valid == True:
                                     file_name = in_prog[pair_key].message
+                                    in_prog[pair_key].time_recv = datetime.datetime.now()
                                     data = base64.b64decode(parsed_data['message']['data'])
                                     with open(file_name, "ab") as file:
                                         file.write(data)
@@ -182,18 +183,19 @@ def track_time_in_prog(): #this thread removes any message that are being transm
     global in_prog_lock
     while True:
         time.sleep(1.0)
-        with in_prog_lock:
-            while len(in_prog) != 0:
+        while len(in_prog) != 0:
+            time.sleep(1.0)
+            with in_prog_lock:
                 keys_to_delete = list(in_prog.keys())
                 for x in keys_to_delete:
-                    if datetime.datetime.now() - in_prog[x].time_recv > timedelta(seconds=TIMEOUT_TIME):
-                        if in_prog[x].is_file == True: #deletes files that were not fully uploaded
-                            Path(in_prog[x].message).unlink(missing_ok=True)
-                        del in_prog[x]
-                    else:
-                        continue
-                time.sleep(1.0) #checks every second to prevent unnecsary cycles
-        
+                    if x in in_prog:
+                        if datetime.datetime.now() - in_prog[x].time_recv > timedelta(seconds=TIMEOUT_TIME):
+                            if in_prog[x].is_file == True: #deletes files that were not fully uploaded
+                                Path(in_prog[x].message).unlink(missing_ok=True)
+                            del in_prog[x]
+                        else:
+                            continue
+            
 
 def main():
     global connection_lost
@@ -217,8 +219,8 @@ def main():
         thread2.daemon = True
         thread2.start()
 
-        atexit.register(thread1.join, 1)
-        atexit.register(thread2.join, 1)
+        atexit.register(thread1.join, 0.2)
+        atexit.register(thread2.join, 0.2)
     except Exception as e:
         print("The server could not be connected to. You must do option 1 and attempt to recconect.")
 
@@ -417,7 +419,7 @@ def main():
                             response.data = to_send
                             server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                             answer = timeout_check()
-                            check_result = response_check(answer, True)
+                            check_result = response_check(answer, False)
                         if check_result:
                             response = handle_operation(0x2b, room_name, user_name, "")
                             server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
@@ -481,7 +483,7 @@ def main():
                                 response = handle_operation(0x2d, room_name, user_name, "")
                                 server.sendall(cipher_suite.encrypt((json.dumps(response.to_dict()) ).encode('utf-8')) + b"\n")
                                 answer = timeout_check()
-                                response_check(answer)
+                                response_check(answer, False)
                     except socket.timeout:
                         print("The opearation was not completed due to a timeout")
                     except FileNotFoundError:
