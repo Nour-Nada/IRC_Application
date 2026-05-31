@@ -467,10 +467,6 @@ This feature requires no changes to the message structure. Each end uses a share
 
 An operation message pair (`SEND_FILE_OPEN` / `SEND_FILE_CLOSE`) was added specifically to signal file transfers. Since `message.data` is a bytearray rather than a string, any binary data — whether file content or text — can be transmitted using the same general message structure. The receiving client, having received the open operation, knows to treat the incoming data as a file.
 
-### 8.4 Cloud Connected Server
-
-No changes to the application architecture are required for cloud deployment. Once development is complete, the application can be deployed to a cloud provider with only configuration changes (e.g., host and port settings). The program behaves identically whether run locally or in the cloud.
-
 ---
 
 ## 9. Security

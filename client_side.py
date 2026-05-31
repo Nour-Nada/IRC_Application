@@ -26,8 +26,9 @@ connection_lost = False
 connection_lost_lock = threading.Lock()
 
 #user inbox
-inbox = []
+inbox = {}
 inbox_lock = threading.Lock()
+inbox_counter = 0
 
 #in progress incoming messages (they are stored like this since techinically many users can send something at the same time)
 in_prog = {} #Format: (sender, target): "data"
@@ -91,6 +92,7 @@ def handle_input(server_socket): #the thread that process all the messages comng
     global in_prog_lock
     global inbox
     global inbox_lock
+    global inbox_counter
 
     while connection_lost == False:
         time.sleep(0.1) #to lower the load a bit instead of checking so often
@@ -98,7 +100,7 @@ def handle_input(server_socket): #the thread that process all the messages comng
             try:
                 tmp_answer = server_socket.recv(RECV_SIZE).decode('utf-8')
                 tmp_list = tmp_answer.split("\n") #splits the messages based on delimters to prevent errors with TCP messages that combine together
-                print(f"{tmp_answer}") #for testing the purposes
+                # print(f"{tmp_answer}") #for testing the purposes
 
                 for tmp_ret in tmp_list:
                     if len(tmp_ret) == 0: break
@@ -107,6 +109,7 @@ def handle_input(server_socket): #the thread that process all the messages comng
                     if ('operation_message' in parsed_data and parsed_data['operation_message']['sender'] == SERVER_NAME) or ('error_message' in parsed_data and parsed_data['error_message']['sender'] == SERVER_NAME) or ('message' in parsed_data and parsed_data['message']['header']['sender'] == SERVER_NAME):
                         server_answer.put(parsed_data)
                     else:
+                        new_message = None
                         if 'message' in parsed_data:
                             pair_key = (parsed_data['message']['header']['sender'], parsed_data['message']['header']['target'])
                             if pair_key not in in_prog:
@@ -117,21 +120,23 @@ def handle_input(server_socket): #the thread that process all the messages comng
                                 if in_prog[pair_key].is_valid == True:
                                     file_name = in_prog[pair_key].message
                                     data = base64.b64decode(parsed_data['message']['data'])
-                                    with open(file_name, "a") as file:
+                                    with open(file_name, "ab") as file:
                                         file.write(data)
                             else:
                                 print("An incorrect protocol was used", file=sys.stderr)
                         elif 'operation_message' in parsed_data:
                             if parsed_data['operation_message']['operation_code'] == 0x2a: #creates the message
+                                print("was here1")
                                 with in_prog_lock:
                                     in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])] = recv_message(datetime.datetime.now(), "", False)
                             elif parsed_data['operation_message']['operation_code'] == 0x2b: #moves the message from the in progress structure to the inbox
-                                new_message
+                                print("was here2")
                                 with in_prog_lock:
                                     new_message = in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]
                                     del in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]
                                 with inbox_lock:
-                                    inbox[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])] = new_message
+                                    inbox[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'], inbox_counter)] = new_message
+                                inbox_counter += 1
                             elif parsed_data['operation_message']['operation_code'] == 0x2c:
                                 file_path = Path(parsed_data['operation_message']['data'])
                                 with in_prog_lock:
@@ -139,22 +144,24 @@ def handle_input(server_socket): #the thread that process all the messages comng
                                 if file_path.is_file():
                                     in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])].is_valid = False #sets messages with files that already exist as not valid message streams
                             elif parsed_data['operation_message']['operation_code'] == 0x2d:
-                                new_message
                                 with in_prog_lock:
                                     new_message = in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]
                                     del in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]
                                 with inbox_lock:
-                                    inbox[in_prog[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'])]] = new_message
+                                    inbox[(parsed_data['operation_message']['sender'], parsed_data['operation_message']['target'], inbox_counter)] = new_message
+                                inbox_counter += 1
                             else:
                                 print("An incorrect protocol was used", file=sys.stderr)
                         else:
                             print("An incorrect protocol was used", file=sys.stderr)
             except ConnectionResetError as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
                 print(f"\nThe server was forcibly closed.")
+                print("Exit what you are currently in then choose option 1 to reconnect:")
                 with connection_lost_lock:
                     connection_lost = True
             except (BrokenPipeError, ConnectionResetError, OSError) as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
                 print("A connection error occured")
+                print("Exit what you are currently in then choose option 1 to reconnect:")
                 with connection_lost_lock:
                     connection_lost = True
             except Exception as e:
@@ -202,8 +209,7 @@ def main():
         thread2.daemon = True
         thread2.start()
     except Exception as e:
-        print("The server could not be connected to. The program will now terminate. Goodbye.")
-        option = 0
+        print("The server could not be connected to. You must do option 1 and attempt to recconect.")
 
     if option != 0:
         print("Welcome the the Client Interface for the Internet Relay Chat (IRC) Application!!!")
@@ -366,9 +372,10 @@ def main():
                 while option_check.lower() == 'y':
                     index = 0
                     room_name = input("What is the name of the room or user who you would like to send a message to (must be under 20 charcters): ")
-                    if len(room_name) > 20 or len(room_name) <= 0:
-                        while len(room_name) > 20 or len(room_name) <= 0:
-                            print("You entred an invalid name length")
+                    if len(room_name) > 20 or len(room_name) <= 0 or room_name == user_name:
+                        while len(room_name) > 20 or len(room_name) <= 0  or room_name == user_name:
+                            if len(room_name) > 20 or len(room_name) <= 0: print("You entred an invalid name length")
+                            else: print("You can not send a message to yourself")
                             room_name = input("What is the name of the room or user who you would like to send a message to (must be under 20 charcters): ")
 
                     #the order for sending this is first sending the opening message, then the contents, then the closing message
@@ -415,7 +422,65 @@ def main():
                             option_check = input("Would you like to send to another room or user (Yes = y | No = n)? ")
 
             elif option == 8:
-                pass
+                option_check = 'y'
+                while option_check.lower() == 'y':
+                    index = 0
+                    room_name = input("What is the name of the room or user who you would like to send a file to (must be under 20 charcters): ")
+                    if len(room_name) > 20 or len(room_name) <= 0 or room_name == user_name:
+                        while len(room_name) > 20 or len(room_name) <= 0  or room_name == user_name:
+                            if len(room_name) > 20 or len(room_name) <= 0: print("You entred an invalid name length")
+                            else: print("You can not send a file to yourself")
+                            room_name = input("What is the name of the room or user who you would like to send a file to (must be under 20 charcters): ")
+
+                    #the order for sending this is first sending the opening message, then the contents, then the closing message
+                    print("Any file over a few mb's will probably take minutes due to the arhciture of this IRC")
+                    file_name = input("Enter the file you would like to send below: ")
+                    if len(file_name) <= 0:
+                        while len(file_name) <= 0 and len(file_name) > 20:
+                            print("The length of the name is invalid.")
+                            file_name = input("Enter the file you would like to send below: ")
+
+                    final_file_name = input("Enter what name you would like to have the file named as upon arrival (must be under 20 charcters): ")
+                    if len(file_name) <= 0:
+                        while len(final_file_name) <= 0:
+                            print("The length of the name is invalid.")
+                            final_file_name = input("Enter what name you would like to have the file named as upon arrival (must be under 20 charcters): ")
+                    response = handle_operation(0x2c, room_name, user_name, final_file_name)
+                    server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                    try:
+                        message_not_complete = True
+                        answer = timeout_check()
+                        check_result = response_check(answer)
+                        with open(file_name, "rb") as file:
+                            while message_not_complete and check_result:
+                                to_send = file.read(DATA_SIZE)
+                                if not to_send:            # True when chunk is b'' (EOF reached)
+                                    message_not_complete = False
+                                    continue
+                                response = message()
+                                response.header.operation_code = 0x12
+                                response.header.length = 4 * math.ceil(len(to_send) / 3)
+                                response.header.target = room_name
+                                response.header.sender = user_name
+                                response.data = to_send
+                                server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                                answer = timeout_check()
+                                check_result = response_check(answer, True)
+                            if check_result:
+                                response = handle_operation(0x2d, room_name, user_name, "")
+                                server.sendall(json.dumps(response.to_dict()).encode('utf-8'))
+                                answer = timeout_check()
+                                response_check(answer)
+                    except socket.timeout:
+                        print("The opearation was not completed due to a timeout")
+                    except FileNotFoundError:
+                        print("The file you named does not exist.")
+                    
+                    option_check = input("Would you like to send to another room or user (Yes = y | No = n)? ")
+                    if option_check.lower() != 'y' and option_check.lower() != 'n':
+                        while option_check.lower() != 'y' and option_check.lower() != 'n':
+                            print("You entred an invalid option")
+                            option_check = input("Would you like to send to another room or user (Yes = y | No = n)? ")
 
             elif option == 9:
                 print("If you disconnect all stored data of you on the server will be lost and you will be disconected. Meaning your name will no longer be stored on the server.")
@@ -438,33 +503,33 @@ def main():
                     option = -1
 
             elif option == 10:
-                for i in inbox:
-                    for msg in inbox[i]:
-                        if msg.is_file == False:
-                            print(f"[{msg.time_recv}] {msg.sender} -> {msg.target}: {msg.message}")
+                print(f"Message Count in Inbox: {len(inbox)}", file=sys.stderr)
+                for (sender, target, message_index), msg in inbox.items():
+                    if msg.is_file == False:
+                        print(f"[{msg.time_recv}] {sender} -> {target}: {msg.message}")
+                    else:
+                        if msg.is_valid:
+                            print(f"[{msg.time_recv}] (is file) {sender} -> {target}; The file name is: {msg.message}")
                         else:
-                            if msg.is_valid:
-                                print(f"[{msg.time_recv}] {msg.sender} -> {msg.target}: {msg.message}")
-                            else:
-                                print(f"[{msg.time_recv}] {msg.sender} -> {msg.target}: (duplicate file ignored) {msg.message}")
+                            print(f"[{msg.time_recv}] {sender} -> {target}: (duplicate file ignored) {msg.message}")
 
             else:
                 print("An unknown error occured. Please enter your option again.")
                 continue
         except ConnectionResetError as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
             print(f"\nThe server was forcibly closed.")
+            print("Exit what you are currently in then choose option 1 to reconnect:")
             with connection_lost_lock:
                 connection_lost = True
-            print("Type 1 to reconnect:")
         except (BrokenPipeError, ConnectionResetError, OSError) as e: #attempts to catch specfic errors first to avoid catching general erros before moving to the general error catch
             print("\nThe sever seems to be offline. You must reconnect once it comes back online again")
+            print("Exit what you are currently in then choose option 1 to reconnect:")
             with connection_lost_lock:
                 connection_lost = True
-            print("Type 1 to reconnect:")
-        # except Exception as e:
-        #     print(f"\nAn unexpected error occured: {e}")
-        #     with connection_lost_lock:
-        #         connection_lost = True
+        except Exception as e:
+            print(f"\nAn unexpected error occured: {e}")
+            with connection_lost_lock:
+                connection_lost = True
 
 
     server.close()
